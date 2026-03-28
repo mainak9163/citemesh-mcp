@@ -1,0 +1,29 @@
+{
+  "name": "@citemesh/export-worker",
+  "version": "0.1.0",
+  "description": "Fastify service that formats works as JSON, CSV, and BibTeX/bibliography outputs",
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@citemesh/contracts": "workspace:*",
+    "citation-js": "^0.7.14",
+    "dotenv": "^16.4.5",
+    "fastify": "^4.27.0",
+    "pino": "^9.2.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsx": "^4.15.7",
+    "typescript": "^5.4.5",
+    "vitest": "^1.6.0"
+  }
+}
