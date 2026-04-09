@@ -19,7 +19,7 @@ export class ResponseCache {
   private defaultTtl: number;
 
   constructor(dbPath: string, defaultTtlSeconds = 3600) {
-    const resolved = path.resolve(dbPath);
+    const resolved = dbPath === ":memory:" ? dbPath : path.resolve(dbPath);
     this.db = new Database(resolved);
     this.defaultTtl = defaultTtlSeconds;
     this.initialize();

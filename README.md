@@ -1,435 +1,138 @@
 # CItemesh MCP
 
-**Federated scholarly metadata MCP server** — lets AI agents search works, resolve DOIs, enrich metadata, batch-fetch records, and export citation-ready outputs.
+Federated scholarly metadata tools for MCP clients.
 
-Built with the [Model Context Protocol](https://modelcontextprotocol.io/) TypeScript SDK. Data comes from the [Crossref REST API](https://api.crossref.org/) and [Wikidata](https://query.wikidata.org/).
+CItemesh is a small monorepo that lets an AI agent:
 
----
+- search scholarly works from Crossref
+- resolve DOI metadata into one normalized shape
+- enrich works with Wikidata entities
+- batch-resolve multiple DOIs
+- export results as CSV or JSON
+- generate citation outputs such as BibTeX, CSL-JSON, and formatted bibliography text
 
-## Why this exists
+The project is split into focused services:
 
-Research agents need a reliable, normalized view of scholarly metadata. Raw Crossref responses are inconsistent — missing years, JATS-encoded abstracts, multiple title variants. CItemesh handles all of that so the agent never has to.
+- `apps/metadata-federator` fetches and normalizes metadata
+- `apps/export-worker` formats and exports results
+- `apps/mcp-gateway` exposes the functionality as MCP tools over stdio
+- `packages/contracts` shares schemas and DTOs across the services
 
-The multi-service architecture keeps each responsibility isolated: normalization, enrichment, and export are separate Fastify microservices. The MCP gateway is intentionally thin — it receives tool calls, validates input with Zod, and delegates. Adding a new data source (OpenAlex, Semantic Scholar) means adding one new service, not changing the gateway.
+## Demo Video
 
----
+Add your recording link here after you upload it:
+
+`Demo video: <paste link here>`
+
+## What Problem It Solves
+
+Research metadata from public APIs is messy. Crossref records vary in title shape, dates, abstracts, and author fields. CItemesh solves that by normalizing everything into one predictable `WorkRecord` schema before the data reaches the AI agent or export layer.
+
+That means an MCP client does not need to know:
+
+- how Crossref structures its payloads
+- how to clean DOI inputs
+- how to strip JATS tags from abstracts
+- how to combine metadata lookup and export formatting
 
 ## Architecture
 
 ```mermaid
 graph TD
-    Agent["AI Agent (Claude / MCP Client)"]
-    GW["apps/mcp-gateway\n(MCP SDK, stdio transport)"]
-    FED["apps/metadata-federator\n(Fastify :3001)"]
-    EXP["apps/export-worker\n(Fastify :3002)"]
-    CACHE[("SQLite Cache\ncache.db")]
-    CROSSREF["Crossref REST API\napi.crossref.org"]
-    WIKIDATA["Wikidata SPARQL\nquery.wikidata.org"]
-    CONTRACTS["packages/contracts\n(Zod schemas, DTOs, errors)"]
+    Agent["MCP Client / AI Agent"]
+    Gateway["apps/mcp-gateway\nMCP server over stdio"]
+    Federator["apps/metadata-federator\nFastify service :3001"]
+    Exporter["apps/export-worker\nFastify service :3002"]
+    Contracts["packages/contracts\nshared schemas and DTOs"]
+    Crossref["Crossref REST API"]
+    Wikidata["Wikidata SPARQL"]
+    Cache[("SQLite cache")]
 
-    Agent -->|"MCP tool call (stdio)"| GW
-    GW -->|"POST /search, /resolve, /batch, /enrich"| FED
-    GW -->|"POST /export, /bibliography"| EXP
-    FED -->|"cache read/write"| CACHE
-    FED -->|"HTTP (undici)"| CROSSREF
-    FED -->|"SPARQL (undici)"| WIKIDATA
-    CONTRACTS -.->|"shared types"| GW
-    CONTRACTS -.->|"shared types"| FED
-    CONTRACTS -.->|"shared types"| EXP
+    Agent --> Gateway
+    Gateway --> Federator
+    Gateway --> Exporter
+    Federator --> Crossref
+    Federator --> Wikidata
+    Federator --> Cache
+    Contracts -.-> Gateway
+    Contracts -.-> Federator
+    Contracts -.-> Exporter
 ```
 
-### Service responsibilities
+## Monorepo Structure
 
-| Service | Port | Responsibility |
-|---|---|---|
-| `mcp-gateway` | stdio | Receives MCP tool calls; validates input; delegates to services |
-| `metadata-federator` | 3001 | Queries Crossref + Wikidata; normalizes into `WorkRecord`; SQLite cache |
-| `export-worker` | 3002 | CSV, JSON, BibTeX, CSL-JSON, and APA bibliography formatting |
-| `contracts` | — | Shared Zod schemas, DTOs, error types (zero runtime deps beyond Zod) |
-
----
-
-## Folder structure
-
-```
+```text
 citemesh-mcp/
-├── apps/
-│   ├── mcp-gateway/
-│   │   └── src/
-│   │       ├── index.ts          # MCP server (stdio), tool dispatch
-│   │       ├── tools.ts          # Tool definitions + handlers
-│   │       └── service-client.ts # HTTP client for internal services
-│   ├── metadata-federator/
-│   │   └── src/
-│   │       ├── index.ts
-│   │       ├── cache/
-│   │       │   └── response-cache.ts   # SQLite TTL cache
-│   │       ├── services/
-│   │       │   ├── crossref-client.ts  # Crossref API + normalization
-│   │       │   ├── wikidata-client.ts  # Wikidata SPARQL enrichment
-│   │       │   └── doi-utils.ts        # DOI parsing/validation
-│   │       └── routes/
-│   │           ├── search.ts, resolve.ts, batch.ts, enrich.ts
-│   └── export-worker/
-│       └── src/
-│           ├── index.ts
-│           ├── services/
-│           │   ├── csv-exporter.ts     # RFC 4180 CSV
-│           │   └── bibliography.ts     # Citation.js wrapper
-│           └── routes/
-│               ├── export.ts, bibliography.ts
-└── packages/
-    └── contracts/
-        └── src/
-            ├── work.ts    # WorkRecord, Author, WikidataEntity schemas
-            ├── errors.ts  # CitemeshError, ErrorType, makeError
-            └── dtos.ts    # Request/response DTOs for all routes
+|-- apps/
+|   |-- export-worker/
+|   |   |-- src/
+|   |   |   |-- __tests__/
+|   |   |   |-- routes/
+|   |   |   `-- services/
+|   |-- mcp-gateway/
+|   |   `-- src/
+|   |       |-- index.ts
+|   |       |-- service-client.ts
+|   |       `-- tools.ts
+|   `-- metadata-federator/
+|       |-- src/
+|       |   |-- __tests__/
+|       |   |-- cache/
+|       |   |-- routes/
+|       |   `-- services/
+|       `-- vitest.config.ts
+|-- packages/
+|   `-- contracts/
+|       `-- src/
+|           |-- dtos.ts
+|           |-- errors.ts
+|           `-- work.ts
+|-- .env.example
+|-- package.json
+|-- pnpm-workspace.yaml
+`-- tsconfig.base.json
 ```
 
----
+## Services and Responsibilities
 
-## Setup
+| Package | Role | Default port |
+|---|---|---|
+| `@citemesh/metadata-federator` | Search, DOI resolution, batching, Wikidata enrichment, SQLite response cache | `3001` |
+| `@citemesh/export-worker` | CSV export, JSON export, BibTeX, CSL-JSON, formatted bibliography | `3002` |
+| `@citemesh/mcp-gateway` | MCP tool registration, input validation, delegation to internal services | stdio |
+| `@citemesh/contracts` | Shared Zod schemas, DTOs, error shapes, normalized types | n/a |
 
-### Prerequisites
+## Main MCP Tools
 
-- Node.js 20+
-- pnpm 8+ (`npm install -g pnpm`)
-- Python 3 (for building `better-sqlite3` native addon)
+The gateway exposes these tools:
 
-### Install
+| Tool | What it does |
+|---|---|
+| `search_works` | Search Crossref by query or author |
+| `resolve_doi` | Resolve one DOI into a normalized record |
+| `batch_lookup_dois` | Resolve up to 50 DOIs in one call |
+| `enrich_work_entities` | Resolve a work and attach Wikidata entity info |
+| `build_bibliography` | Produce BibTeX, CSL-JSON, or formatted bibliography |
+| `export_results` | Export normalized works as CSV or JSON |
 
-```bash
-git clone https://github.com/your-org/citemesh-mcp
-cd citemesh-mcp
+## Normalized Data Model
 
-# Install all workspace dependencies
-pnpm install
+Every service works around a shared `WorkRecord` shape:
 
-# Build all packages
-pnpm build
-```
-
-### Configure
-
-```bash
-cp .env.example .env
-# Edit .env — at minimum set CROSSREF_MAILTO to your email
-# for Crossref's polite pool (higher rate limits)
-```
-
-### Run services
-
-Open **three terminals**:
-
-```bash
-# Terminal 1: metadata-federator
-cd apps/metadata-federator
-pnpm dev
-
-# Terminal 2: export-worker
-cd apps/export-worker
-pnpm dev
-
-# Terminal 3: mcp-gateway (connects via stdio)
-cd apps/mcp-gateway
-pnpm dev
-```
-
-Or run all in parallel:
-
-```bash
-pnpm dev  # from root — starts all 3 with pnpm --parallel
-```
-
----
-
-## MCP Tools
-
-### 1. `search_works`
-
-Search Crossref by keyword or author.
-
-```json
-{
-  "tool": "search_works",
-  "input": {
-    "query": "transformer attention mechanism",
-    "rows": 3,
-    "offset": 0
-  }
-}
-```
-
-**Sample response:**
-
-```json
-{
-  "items": [
-    {
-      "doi": "10.48550/arxiv.1706.03762",
-      "title": "Attention Is All You Need",
-      "authors": [
-        { "given": "Ashish", "family": "Vaswani" },
-        { "given": "Noam", "family": "Shazeer" }
-      ],
-      "year": 2017,
-      "source": "arXiv",
-      "type": "posted-content",
-      "publisher": "arXiv",
-      "url": "https://doi.org/10.48550/arxiv.1706.03762",
-      "external_ids": { "doi": "10.48550/arxiv.1706.03762" },
-      "raw_source": "crossref"
-    }
-  ],
-  "pagination": {
-    "total_results": 3847,
-    "rows": 3,
-    "offset": 0
-  },
-  "warnings": []
-}
-```
-
----
-
-### 2. `resolve_doi`
-
-Fetch full metadata for a single DOI.
-
-```json
-{
-  "tool": "resolve_doi",
-  "input": {
-    "doi": "10.1038/s41586-021-03819-2"
-  }
-}
-```
-
-**Sample response:**
-
-```json
-{
-  "doi": "10.1038/s41586-021-03819-2",
-  "title": "Highly accurate protein structure prediction with AlphaFold",
-  "authors": [
-    {
-      "given": "John",
-      "family": "Jumper",
-      "orcid": "0000-0001-6169-6580",
-      "affiliation": ["DeepMind"]
-    }
-  ],
-  "year": 2021,
-  "source": "Nature",
-  "type": "journal-article",
-  "publisher": "Springer Nature",
-  "url": "https://doi.org/10.1038/s41586-021-03819-2",
-  "abstract": "Proteins are essential to life, and understanding their structure...",
-  "external_ids": {
-    "doi": "10.1038/s41586-021-03819-2",
-    "issn": ["0028-0836", "1476-4687"]
-  },
-  "raw_source": "crossref"
-}
-```
-
----
-
-### 3. `batch_lookup_dois`
-
-Resolve up to 50 DOIs at once. Partial failures are tracked per-item.
-
-```json
-{
-  "tool": "batch_lookup_dois",
-  "input": {
-    "dois": [
-      "10.1038/s41586-021-03819-2",
-      "10.1145/3290605.3300400",
-      "10.1000/does-not-exist"
-    ]
-  }
-}
-```
-
-**Sample response:**
-
-```json
-{
-  "items": [
-    { "doi": "10.1038/s41586-021-03819-2", "title": "Highly accurate protein...", "..." : "..." },
-    { "doi": "10.1145/3290605.3300400", "title": "Understanding...", "...": "..." }
-  ],
-  "not_found": ["10.1000/does-not-exist"],
-  "errors": []
-}
-```
-
----
-
-### 4. `enrich_work_entities`
-
-Resolves a work then attaches Wikidata entity data.
-
-```json
-{
-  "tool": "enrich_work_entities",
-  "input": {
-    "doi": "10.1038/s41586-021-03819-2"
-  }
-}
-```
-
-**Sample response:**
-
-```json
-{
-  "doi": "10.1038/s41586-021-03819-2",
-  "title": "Highly accurate protein structure prediction with AlphaFold",
-  "...": "...(full WorkRecord)...",
-  "entities": {
-    "work": {
-      "entity_id": "Q107738907",
-      "label": "Highly accurate protein structure prediction with AlphaFold",
-      "description": "2021 scientific article published in Nature"
-    },
-    "authors": []
-  }
-}
-```
-
----
-
-### 5. `build_bibliography`
-
-Generate BibTeX, CSL-JSON, or formatted APA bibliography.
-
-```json
-{
-  "tool": "build_bibliography",
-  "input": {
-    "dois": ["10.1038/s41586-021-03819-2"],
-    "format": "bibtex"
-  }
-}
-```
-
-**Sample response (bibtex):**
-
-```json
-{
-  "format": "bibtex",
-  "content": "@article{jumper2021highly,\n  title={Highly accurate protein structure prediction with AlphaFold},\n  author={Jumper, John and Evans, Richard and ...},\n  journal={Nature},\n  year={2021},\n  publisher={Springer Nature}\n}\n",
-  "count": 1,
-  "errors": []
-}
-```
-
----
-
-### 6. `export_results`
-
-Export an array of works as CSV or JSON.
-
-```json
-{
-  "tool": "export_results",
-  "input": {
-    "works": [{ "doi": "10.1038/s41586-021-03819-2", "..." : "..." }],
-    "format": "csv"
-  }
-}
-```
-
-**Sample response (csv):**
-
-```json
-{
-  "format": "csv",
-  "content_type": "text/csv",
-  "data": "doi,title,authors,year,source,type,publisher,url,abstract\r\n10.1038/s41586-021-03819-2,\"Highly accurate protein structure...\",\"Jumper, John; Evans, Richard\",2021,Nature,journal-article,Springer Nature,...",
-  "count": 1
-}
-```
-
----
-
-## Running tests
-
-```bash
-# All unit tests
-pnpm test
-
-# Specific suites
-cd apps/metadata-federator
-pnpm test -- src/services/__tests__/normalization.test.ts
-pnpm test -- src/services/__tests__/batch.test.ts
-pnpm test -- src/__tests__/integration.test.ts   # requires network
-
-cd apps/export-worker
-pnpm test -- src/__tests__/csv-exporter.test.ts
-```
-
-Integration tests detect network availability automatically and skip Crossref-dependent cases gracefully if the API is unreachable (e.g. in CI without egress).
-
----
-
-## Testing with MCP Inspector
-
-[MCP Inspector](https://github.com/modelcontextprotocol/inspector) is the official tool for interactively calling MCP servers.
-
-```bash
-# Install MCP Inspector globally
-npm install -g @modelcontextprotocol/inspector
-
-# Start the services first (metadata-federator + export-worker)
-cd apps/metadata-federator && pnpm dev &
-cd apps/export-worker && pnpm dev &
-
-# Launch inspector with the gateway
-npx @modelcontextprotocol/inspector node apps/mcp-gateway/dist/index.js
-```
-
-Then open http://localhost:5173 and call tools interactively.
-
----
-
-## Testing with Claude Desktop
-
-Add this to your `claude_desktop_config.json` (typically at `~/Library/Application Support/Claude/` on macOS):
-
-```json
-{
-  "mcpServers": {
-    "citemesh": {
-      "command": "node",
-      "args": ["/absolute/path/to/citemesh-mcp/apps/mcp-gateway/dist/index.js"],
-      "env": {
-        "METADATA_FEDERATOR_URL": "http://localhost:3001",
-        "EXPORT_WORKER_URL": "http://localhost:3002",
-        "CROSSREF_MAILTO": "your@email.com"
-      }
-    }
-  }
-}
-```
-
-Make sure `metadata-federator` and `export-worker` are running before starting Claude Desktop.
-
----
-
-## The WorkRecord type
-
-All tools return or accept this normalized shape:
-
-```typescript
+```ts
 type WorkRecord = {
   doi: string;
   title: string;
-  authors: Author[];          // { given?, family?, name?, orcid?, affiliation? }
+  authors: Array<{
+    given?: string;
+    family?: string;
+    name?: string;
+    orcid?: string;
+    affiliation?: string[];
+  }>;
   year: number | null;
-  source: string;             // journal / conference / book name
-  type: string;               // "journal-article", "book-chapter", etc.
+  source: string;
+  type: string;
   publisher?: string;
   url?: string;
   abstract?: string;
@@ -445,40 +148,331 @@ type WorkRecord = {
 };
 ```
 
-Wikidata enrichment attaches a separate `entities` object and never mutates this base shape.
+## Tech Stack
 
----
+- Node.js
+- TypeScript
+- pnpm workspaces
+- Fastify
+- Zod
+- MCP TypeScript SDK
+- SQLite via `better-sqlite3`
+- Crossref REST API
+- Wikidata SPARQL
+- Citation.js
+- Vitest
 
-## Error shape
+## Prerequisites
 
-All errors follow a consistent structured format:
+- Node.js `20+`
+- pnpm `8+`
+- Internet access for live Crossref and Wikidata calls
+- On Windows, Python and Visual Studio Build Tools may be needed if `better-sqlite3` compiles locally
+
+## Setup
+
+```bash
+pnpm install
+pnpm build
+```
+
+Copy the environment file:
+
+```bash
+cp .env.example .env
+```
+
+At minimum, update:
+
+- `CROSSREF_MAILTO` with your email
+
+The default `.env.example` already includes:
+
+- `METADATA_FEDERATOR_PORT=3001`
+- `EXPORT_WORKER_PORT=3002`
+- `METADATA_FEDERATOR_URL=http://localhost:3001`
+- `EXPORT_WORKER_URL=http://localhost:3002`
+- `CACHE_DB_PATH=./cache.db`
+- `CACHE_TTL_SECONDS=3600`
+
+## Run the Project
+
+Run everything in parallel from the repo root:
+
+```bash
+pnpm dev
+```
+
+Or run each service separately:
+
+```bash
+pnpm --filter @citemesh/metadata-federator dev
+pnpm --filter @citemesh/export-worker dev
+pnpm --filter @citemesh/mcp-gateway dev
+```
+
+## Build and Test
+
+Build the whole monorepo:
+
+```bash
+pnpm build
+```
+
+Run all tests:
+
+```bash
+pnpm test
+```
+
+What is covered today:
+
+- metadata normalization tests
+- DOI utility tests
+- batch response shape tests
+- live integration tests for `metadata-federator`
+- CSV export tests
+- bibliography generation tests
+
+## Quick Manual Smoke Test
+
+### 1. Start the HTTP services
+
+```bash
+pnpm --filter @citemesh/metadata-federator dev
+pnpm --filter @citemesh/export-worker dev
+```
+
+### 2. Check health routes
+
+```bash
+curl http://127.0.0.1:3001/health
+curl http://127.0.0.1:3002/health
+```
+
+Expected:
+
+```json
+{"status":"ok","service":"metadata-federator"}
+{"status":"ok","service":"export-worker"}
+```
+
+### 3. Search works
+
+```bash
+curl -X POST http://127.0.0.1:3001/search \
+  -H "Content-Type: application/json" \
+  -d "{\"query\":\"attention is all you need\",\"rows\":1}"
+```
+
+### 4. Resolve a DOI
+
+```bash
+curl -X POST http://127.0.0.1:3001/resolve \
+  -H "Content-Type: application/json" \
+  -d "{\"doi\":\"10.1038/s41586-021-03819-2\"}"
+```
+
+### 5. Export a work as CSV
+
+```bash
+curl -X POST http://127.0.0.1:3002/export \
+  -H "Content-Type: application/json" \
+  -d "{\"works\":[{\"doi\":\"10.1038/s41586-021-03819-2\",\"title\":\"Highly accurate protein structure prediction with AlphaFold\",\"authors\":[{\"family\":\"Jumper\",\"given\":\"John\"}],\"year\":2021,\"source\":\"Nature\",\"type\":\"journal-article\",\"publisher\":\"Springer Nature\",\"url\":\"https://doi.org/10.1038/s41586-021-03819-2\",\"abstract\":\"Proteins are essential to life.\",\"external_ids\":{\"doi\":\"10.1038/s41586-021-03819-2\",\"issn\":[\"0028-0836\"]},\"raw_source\":\"crossref\"}],\"format\":\"csv\"}"
+```
+
+### 6. Generate BibTeX
+
+```bash
+curl -X POST http://127.0.0.1:3002/bibliography \
+  -H "Content-Type: application/json" \
+  -d "{\"works\":[{\"doi\":\"10.1038/s41586-021-03819-2\",\"title\":\"Highly accurate protein structure prediction with AlphaFold\",\"authors\":[{\"family\":\"Jumper\",\"given\":\"John\"}],\"year\":2021,\"source\":\"Nature\",\"type\":\"journal-article\",\"publisher\":\"Springer Nature\",\"url\":\"https://doi.org/10.1038/s41586-021-03819-2\",\"abstract\":\"Proteins are essential to life.\",\"external_ids\":{\"doi\":\"10.1038/s41586-021-03819-2\",\"issn\":[\"0028-0836\"]},\"raw_source\":\"crossref\"}],\"format\":\"bibtex\"}"
+```
+
+## Testing Through MCP
+
+The most useful end-to-end demo is to run the two HTTP services and then attach the gateway through an MCP client or MCP Inspector.
+
+Build first:
+
+```bash
+pnpm build
+```
+
+Run the backing services:
+
+```bash
+pnpm --filter @citemesh/metadata-federator dev
+pnpm --filter @citemesh/export-worker dev
+```
+
+Then start the gateway:
+
+```bash
+node apps/mcp-gateway/dist/index.js
+```
+
+Because the gateway uses stdio, it is meant to be launched by an MCP client rather than opened in a browser directly.
+
+### MCP Inspector
+
+```bash
+npx @modelcontextprotocol/inspector node apps/mcp-gateway/dist/index.js
+```
+
+From there you can call:
+
+- `search_works`
+- `resolve_doi`
+- `build_bibliography`
+- `export_results`
+
+## Example MCP Inputs
+
+Search:
 
 ```json
 {
-  "type": "NOT_FOUND | VALIDATION_ERROR | UPSTREAM_API_FAILURE | PARTIAL_BATCH_FAILURE | INTERNAL_ERROR",
-  "message": "Human-readable message",
-  "details": { "...": "optional structured context" }
+  "query": "transformer attention mechanism",
+  "rows": 3,
+  "offset": 0
 }
 ```
 
----
+Resolve DOI:
 
-## Caching
+```json
+{
+  "doi": "10.1038/s41586-021-03819-2"
+}
+```
 
-`metadata-federator` caches all Crossref and Wikidata responses in a local SQLite database (`cache.db`). Cache keys are SHA-256 hashes of `endpoint:normalized-params`. Default TTL is 1 hour, configurable via `CACHE_TTL_SECONDS`.
+Batch lookup:
 
-On startup, expired entries are pruned. The cache is completely transparent to callers.
+```json
+{
+  "dois": [
+    "10.1038/s41586-021-03819-2",
+    "10.1145/3290605.3300400"
+  ]
+}
+```
 
----
+Bibliography:
 
-## Why this architecture is useful for research metadata systems
+```json
+{
+  "dois": ["10.1038/s41586-021-03819-2"],
+  "format": "bibtex"
+}
+```
 
-**Normalization at the boundary.** Raw Crossref responses vary significantly — some records have no year, some have abstract fields wrapped in JATS XML, some have no authors. Normalizing at the federator boundary means every downstream consumer (export, bibliography, MCP tools) works with a clean, predictable `WorkRecord`.
+CSV export:
 
-**Separation of concerns.** Export formatting (CSV, BibTeX) has nothing to do with fetching metadata. Putting them in separate services means each can evolve independently. Adding a new export format doesn't touch the metadata pipeline.
+```json
+{
+  "works": [
+    {
+      "doi": "10.1038/s41586-021-03819-2",
+      "title": "Highly accurate protein structure prediction with AlphaFold",
+      "authors": [{ "family": "Jumper", "given": "John" }],
+      "year": 2021,
+      "source": "Nature",
+      "type": "journal-article",
+      "publisher": "Springer Nature",
+      "url": "https://doi.org/10.1038/s41586-021-03819-2",
+      "external_ids": { "doi": "10.1038/s41586-021-03819-2" },
+      "raw_source": "crossref"
+    }
+  ],
+  "format": "csv"
+}
+```
 
-**Gateway stays thin.** The MCP gateway is literally just: validate input → call a service → return the result. All the interesting logic lives in the services where it can be tested directly with HTTP, without needing an MCP client.
+## How To Describe This Project In Your Recording
 
-**Cache-first for external APIs.** Scholarly metadata almost never changes after publication. Caching Crossref responses for an hour (or longer) dramatically reduces latency and respects Crossref's rate limits. The SQLite cache is a single file, zero-dependency addition.
+If you want a clean, confident explanation, this is the simplest framing:
 
-**Structured errors throughout.** Every error from every service has `type`, `message`, and optional `details`. This means AI agents can distinguish between "this DOI doesn't exist" (NOT_FOUND), "Crossref is down" (UPSTREAM_API_FAILURE), and "your input was malformed" (VALIDATION_ERROR) — and handle each appropriately.
+> CItemesh MCP is a scholarly metadata MCP server. It lets an AI agent search research papers, resolve DOI metadata, enrich records with Wikidata, and export normalized outputs like CSV or BibTeX. The project is split into a thin MCP gateway, a metadata federator, an export worker, and shared contracts, which keeps each responsibility isolated and easy to test.
+
+## Suggested 2-3 Minute Video Script
+
+### Opening
+
+Say:
+
+> This project is called CItemesh MCP. It is a federated scholarly metadata server built for the Model Context Protocol. The main goal is to give AI agents a clean way to search papers, resolve DOI metadata, enrich records, and export citation-ready outputs.
+
+### Folder walkthrough
+
+Say:
+
+> The codebase is organized as a PNPM monorepo. The `mcp-gateway` app exposes the MCP tools. The `metadata-federator` app talks to Crossref and Wikidata and normalizes the results. The `export-worker` app converts normalized records into CSV, JSON, BibTeX, or bibliography text. The `contracts` package keeps the shared schemas and DTOs in one place so all services stay aligned.
+
+### Architecture value
+
+Say:
+
+> The reason this architecture is useful is that the gateway stays thin. It only validates tool inputs and forwards work to the internal services. That makes the metadata logic and export logic testable on their own, and it also makes the system easier to extend with new sources or new export formats later.
+
+### Demo flow
+
+Say:
+
+> For the demo, I start the metadata federator and export worker, then I either test the HTTP routes directly or attach the MCP gateway with MCP Inspector. A typical flow is searching for a paper, resolving a DOI into a normalized `WorkRecord`, and then exporting that record as BibTeX or CSV.
+
+### Closing
+
+Say:
+
+> The key takeaway is that CItemesh acts as a clean metadata layer between research APIs and AI agents. Instead of every agent dealing with messy external payloads, they all get one stable schema and a small set of focused tools.
+
+## Short 30-Second Version
+
+If you need a very short explanation:
+
+> CItemesh MCP is an MCP server for scholarly metadata. It lets AI agents search Crossref, resolve DOIs, enrich results with Wikidata, and export citation-ready formats like CSV and BibTeX through a clean multi-service architecture.
+
+## Verified On This Repo
+
+The following were verified locally:
+
+- `pnpm build` passes
+- `pnpm test` passes
+- `metadata-federator` health, search, and DOI resolution routes run successfully
+- `export-worker` health, CSV export, and BibTeX generation routes run successfully
+
+## Troubleshooting
+
+### `better-sqlite3` fails to load on Windows
+
+If dependencies were installed from another OS or architecture, do a clean reinstall:
+
+```bash
+pnpm install --force
+```
+
+If Node cannot use a prebuilt binary, `better-sqlite3` may compile locally, which can require:
+
+- Python
+- Visual Studio Build Tools on Windows
+
+### Crossref requests fail or rate-limit
+
+Set a real email in:
+
+```bash
+CROSSREF_MAILTO=you@example.com
+```
+
+### MCP gateway appears idle
+
+That is normal. The gateway uses stdio and waits for an MCP client such as MCP Inspector or a desktop client to connect.
+
+## Future Improvements
+
+- add gateway-specific unit tests
+- support more scholarly sources such as OpenAlex or Semantic Scholar
+- add author-level Wikidata enrichment
+- add Docker-based local startup
+- add API docs for the internal HTTP services

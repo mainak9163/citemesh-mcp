@@ -86,14 +86,14 @@ export async function buildBibliography(
   // Use Citation.js for BibTeX and formatted bibliography
   try {
     // Dynamic import handles the CJS/ESM boundary
-    const { Cite } = (await import("citation-js")) as {
-      Cite: new (data: unknown) => {
+    const { default: Cite } = (await import("citation-js") as unknown as {
+      default: new (data: unknown) => {
         format: (
           type: string,
           opts?: Record<string, unknown>
         ) => string;
       };
-    };
+    });
 
     const cite = new Cite(cslItems);
 
