@@ -1,4 +1,4 @@
-# CItemesh MCP
+# Citemesh MCP
 
 Federated scholarly metadata tools for MCP clients.
 
