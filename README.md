@@ -18,11 +18,6 @@ The project is split into focused services:
 - `apps/mcp-gateway` exposes the functionality as MCP tools over stdio
 - `packages/contracts` shares schemas and DTOs across the services
 
-## Demo Video
-
-Add your recording link here after you upload it:
-
-`Demo video: <paste link here>`
 
 ## What Problem It Solves
 
