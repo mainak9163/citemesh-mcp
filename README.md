@@ -17,7 +17,8 @@ The project is split into focused services:
 - `apps/export-worker` formats and exports results
 - `apps/mcp-gateway` exposes the functionality as MCP tools over stdio
 - `packages/contracts` shares schemas and DTOs across the services
-
+## Demo Vid 
+Link:https://vimeo.com/1182163169?share=copy&fl=sv&fe=ci
 
 ## What Problem It Solves
 
